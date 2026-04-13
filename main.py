@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import re
 import io
+import os
 from collections import Counter
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
@@ -9,7 +10,22 @@ import plotly.express as px
 from wordcloud import WordCloud
 import matplotlib.pyplot as plt
 import matplotlib
-matplotlib.rcParams['font.family'] = 'DejaVu Sans'
+
+# ──────────────────────────────────────────────
+# 한글 폰트 경로 설정 (핵심 수정 부분)
+# ──────────────────────────────────────────────
+FONT_PATH = os.path.join(os.path.dirname(__file__), "fonts", "NanumGothic.ttf")
+
+# matplotlib 한글 폰트 설정
+if os.path.exists(FONT_PATH):
+    from matplotlib import font_manager
+    font_manager.fontManager.addfont(FONT_PATH)
+    font_prop = font_manager.FontProperties(fname=FONT_PATH)
+    matplotlib.rcParams['font.family'] = font_prop.get_name()
+else:
+    matplotlib.rcParams['font.family'] = 'DejaVu Sans'
+
+matplotlib.rcParams['axes.unicode_minus'] = False
 
 # ──────────────────────────────────────────────
 # 페이지 설정
@@ -129,8 +145,7 @@ def get_comments_with_replies(youtube, video_id, max_comments=100, include_repli
                 textFormat="plainText",
             ).execute()
         except HttpError as e:
-            error_reason = str(e)
-            st.error(f"API 오류: {error_reason}")
+            st.error(f"API 오류: {str(e)}")
             break
 
         for item in resp.get("items", []):
@@ -195,7 +210,7 @@ def analyze_sentiment(text):
 
 
 # ──────────────────────────────────────────────
-# 워드클라우드
+# 불용어
 # ──────────────────────────────────────────────
 STOPWORDS_KR = {
     "이", "그", "저", "것", "수", "등", "더", "좀", "를", "을",
@@ -212,6 +227,9 @@ STOPWORDS_KR = {
 }
 
 
+# ──────────────────────────────────────────────
+# 워드클라우드 생성 (폰트 경로 포함 - 핵심 수정)
+# ──────────────────────────────────────────────
 def generate_wordcloud(texts):
     combined = " ".join(texts)
     words = re.findall(r"[가-힣a-zA-Z]{2,}", combined)
@@ -219,7 +237,12 @@ def generate_wordcloud(texts):
     if not filtered:
         return None
     word_freq = Counter(filtered)
+
+    # 한글 폰트 경로 지정 (핵심!)
+    font = FONT_PATH if os.path.exists(FONT_PATH) else None
+
     wc = WordCloud(
+        font_path=font,
         width=800,
         height=400,
         background_color="white",
@@ -295,7 +318,6 @@ if st.button("🚀 댓글 수집 & 분석 시작", use_container_width=True, typ
 
     youtube = build("youtube", "v3", developerKey=api_key)
 
-    # 영상 정보
     with st.spinner("영상 정보를 불러오는 중..."):
         info = get_video_info(youtube, video_id)
 
@@ -303,7 +325,6 @@ if st.button("🚀 댓글 수집 & 분석 시작", use_container_width=True, typ
         st.error("영상 정보를 가져올 수 없습니다.")
         st.stop()
 
-    # 댓글 수집
     with st.spinner(f"댓글을 수집하는 중... (최대 {max_comments}개)"):
         comments = get_comments_with_replies(youtube, video_id, max_comments, include_replies)
 
@@ -325,7 +346,7 @@ if "df" in st.session_state:
     video_id = st.session_state["video_id"]
     info = st.session_state["info"]
 
-    # 영상 정보 표시
+    # 영상 정보
     st.markdown("---")
     col_thumb, col_info = st.columns([1, 2])
     with col_thumb:
@@ -342,6 +363,20 @@ if "df" in st.session_state:
     comment_count = len(df[df["유형"] == "댓글"])
     reply_count = len(df[df["유형"] != "댓글"])
     st.success(f"✅ 총 **{len(df)}개** 수집 완료! (댓글 {comment_count}개 + 답글 {reply_count}개)")
+
+    # 폰트 상태 확인
+    if not os.path.exists(FONT_PATH):
+        st.warning(
+            "⚠️ 한글 폰트 파일이 없습니다! 워드클라우드에서 한글이 깨질 수 있습니다.\n\n"
+            "`fonts/NanumGothic.ttf` 파일을 프로젝트에 추가해주세요."
+        )
+
+    # 감성 색상맵
+    color_map = {
+        "긍정 😊": "#28a745",
+        "부정 😞": "#dc3545",
+        "중립 😐": "#6c757d",
+    }
 
     # ════════════════════════════════════════════
     # 탭 구성
@@ -386,7 +421,10 @@ if "df" in st.session_state:
         page = st.number_input("페이지", min_value=1, max_value=total_pages, value=1, key="page1")
         start_idx = (page - 1) * page_size
         end_idx = start_idx + page_size
-        st.caption(f"총 {len(df_view)}개 중 {start_idx+1}~{min(end_idx, len(df_view))}번째 (전체 {total_pages}페이지)")
+        st.caption(
+            f"총 {len(df_view)}개 중 {start_idx+1}~{min(end_idx, len(df_view))}번째 "
+            f"(전체 {total_pages}페이지)"
+        )
 
         for _, row in df_view.iloc[start_idx:end_idx].iterrows():
             box_class = "reply-box" if row["유형"] != "댓글" else "comment-box"
@@ -407,7 +445,6 @@ if "df" in st.session_state:
                 unsafe_allow_html=True,
             )
 
-        # 표 형태 보기
         with st.expander("📋 표 형태로 보기"):
             st.dataframe(df_view, use_container_width=True, height=400)
 
@@ -419,12 +456,6 @@ if "df" in st.session_state:
 
         sentiment_counts = df["감성"].value_counts()
         col_pie, col_bar = st.columns(2)
-
-        color_map = {
-            "긍정 😊": "#28a745",
-            "부정 😞": "#dc3545",
-            "중립 😐": "#6c757d",
-        }
 
         with col_pie:
             fig_pie = px.pie(
@@ -464,7 +495,10 @@ if "df" in st.session_state:
         st.subheader("☁️ 워드클라우드")
 
         wc_option = st.radio(
-            "대상 선택", ["전체 댓글", "긍정 댓글만", "부정 댓글만"], horizontal=True, key="wc_opt"
+            "대상 선택",
+            ["전체 댓글", "긍정 댓글만", "부정 댓글만"],
+            horizontal=True,
+            key="wc_opt",
         )
         if wc_option == "긍정 댓글만":
             texts = df[df["감성"] == "긍정 😊"]["댓글"].tolist()
@@ -475,9 +509,11 @@ if "df" in st.session_state:
 
         wc = generate_wordcloud(texts)
         if wc:
-            fig_wc, ax = plt.subplots(figsize=(12, 6))
+            fig_wc, ax = plt.subplots(figsize=(14, 7))
             ax.imshow(wc, interpolation="bilinear")
             ax.axis("off")
+            ax.set_title("댓글 워드클라우드", fontsize=16, pad=15)
+            plt.tight_layout()
             st.pyplot(fig_wc)
             plt.close(fig_wc)
         else:
@@ -512,7 +548,6 @@ if "df" in st.session_state:
         avg_len = df["댓글"].str.len().mean()
         c4.metric("평균 글자 수", f"{avg_len:.0f}자")
 
-        # 날짜별 댓글 추이
         st.markdown("### 📅 날짜별 댓글 수 추이")
         df_date = df.groupby("작성일").size().reset_index(name="댓글수")
         df_date = df_date.sort_values("작성일")
@@ -523,7 +558,6 @@ if "df" in st.session_state:
         fig_timeline.update_layout(xaxis_tickangle=-45)
         st.plotly_chart(fig_timeline, use_container_width=True)
 
-        # 좋아요 분포
         st.markdown("### 👍 좋아요 분포")
         fig_hist = px.histogram(
             df, x="좋아요", nbins=30,
@@ -532,7 +566,6 @@ if "df" in st.session_state:
         )
         st.plotly_chart(fig_hist, use_container_width=True)
 
-        # 댓글 길이 분포
         st.markdown("### 📏 댓글 길이 분포")
         df_temp = df.copy()
         df_temp["글자수"] = df_temp["댓글"].str.len()
@@ -544,7 +577,6 @@ if "df" in st.session_state:
         )
         st.plotly_chart(fig_len, use_container_width=True)
 
-        # 감성별 날짜 추이
         st.markdown("### 📅 감성별 날짜 추이")
         df_sent_date = df.groupby(["작성일", "감성"]).size().reset_index(name="댓글수")
         fig_sent_time = px.line(
