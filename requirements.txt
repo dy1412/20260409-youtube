@@ -5,4 +5,3 @@ wordcloud
 matplotlib
 plotly
 openpyxl
-fonts/NanumGothic.ttf
