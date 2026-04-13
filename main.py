@@ -14,7 +14,7 @@ import matplotlib
 # ──────────────────────────────────────────────
 # 한글 폰트 경로 설정 (핵심 수정 부분)
 # ──────────────────────────────────────────────
-FONT_PATH = os.path.join(os.path.dirname(__file__), "fonts", "NanumGothic.ttf")
+FONT_PATH = os.path.join(os.path.dirname(__file__), "fonts", "NanumGothic-Regular (1).ttf")
 
 # matplotlib 한글 폰트 설정
 if os.path.exists(FONT_PATH):
